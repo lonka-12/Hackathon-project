@@ -12,6 +12,8 @@ interface Skill {
   importance: "High" | "Medium" | "Low";
   description: string;
   progress?: number;
+  currentLevel: number;
+  targetLevel: number;
 }
 
 interface ResumeAnalysis {
@@ -51,6 +53,16 @@ interface CourseFilters {
   platform: string;
   minRating: number;
   workload: "Short" | "Medium" | "Long";
+}
+
+interface Job {
+  title: string;
+  company: string;
+  location: string;
+  description: string;
+  salary: string;
+  url: string;
+  requirements: string[];
 }
 
 // Manual course recommendations based on job titles
@@ -151,6 +163,62 @@ const courseRecommendations: { [key: string]: Course[] } = {
 const OPENAI_API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
 const GOOGLE_SEARCH_API_KEY = import.meta.env.VITE_GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_ENGINE_ID = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID;
+const JOOBLE_API_KEY = import.meta.env.VITE_JOOBLE_API_KEY;
+
+// Add this after the other interfaces
+const US_STATES = [
+  "All",
+  "Alabama",
+  "Alaska",
+  "Arizona",
+  "Arkansas",
+  "California",
+  "Colorado",
+  "Connecticut",
+  "Delaware",
+  "Florida",
+  "Georgia",
+  "Hawaii",
+  "Idaho",
+  "Illinois",
+  "Indiana",
+  "Iowa",
+  "Kansas",
+  "Kentucky",
+  "Louisiana",
+  "Maine",
+  "Maryland",
+  "Massachusetts",
+  "Michigan",
+  "Minnesota",
+  "Mississippi",
+  "Missouri",
+  "Montana",
+  "Nebraska",
+  "Nevada",
+  "New Hampshire",
+  "New Jersey",
+  "New Mexico",
+  "New York",
+  "North Carolina",
+  "North Dakota",
+  "Ohio",
+  "Oklahoma",
+  "Oregon",
+  "Pennsylvania",
+  "Rhode Island",
+  "South Carolina",
+  "South Dakota",
+  "Tennessee",
+  "Texas",
+  "Utah",
+  "Vermont",
+  "Virginia",
+  "Washington",
+  "West Virginia",
+  "Wisconsin",
+  "Wyoming",
+];
 
 function App() {
   const [currentPage, setCurrentPage] = useState<"home" | "contact" | "auth">(
@@ -173,17 +241,34 @@ function App() {
   const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
   const [isSearchingCourses, setIsSearchingCourses] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    // Check if user has a saved preference
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme) {
+      return savedTheme as "light" | "dark";
+    }
+    // Check system preference
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [activeSkill, setActiveSkill] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [isLoadingJobs, setIsLoadingJobs] = useState(false);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [selectedState, setSelectedState] = useState("All");
+  const [showJobFilters, setShowJobFilters] = useState(false);
 
-  // Load theme from localStorage on mount
+  // Listen for system theme changes
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as "light" | "dark";
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute("data-theme", savedTheme);
-    }
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = (e: MediaQueryListEvent) => {
+      setTheme(e.matches ? "dark" : "light");
+    };
+
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
 
   // Update theme when it changes
@@ -758,6 +843,9 @@ function App() {
       if (!user) {
         setShowSignInNotice(true);
       }
+
+      // After successful skill analysis, search for jobs
+      await searchJobs(selectedState);
     } catch (error: any) {
       console.error("Error:", error);
       alert(
@@ -939,12 +1027,63 @@ function App() {
     }
   }, [isDragging, activeSkill]);
 
+  const searchJobs = async (selectedStated: string) => {
+    setIsLoadingJobs(true);
+    setJobError(null);
+
+    try {
+      var url = "https://jooble.org/api/";
+      var key = JOOBLE_API_KEY;
+      var params = `{ keywords: '${careerGoal}'${
+        selectedStated !== "All" ? `, location: '${selectedStated}'` : ""
+      }}`;
+      var http = new XMLHttpRequest();
+      //open connection. true - asynchronous, false - synchronous
+      http.open("POST", url + key, true);
+
+      //Send the proper header information
+      http.setRequestHeader("Content-type", "application/json");
+
+      //Callback when the state changes
+      http.onreadystatechange = function () {
+        if (http.readyState == 4 && http.status == 200) {
+          // Process and format the jobs data
+          const data = JSON.parse(http.responseText);
+          const formattedJobs: Job[] = data.jobs
+            .slice(0, 3)
+            .map((job: any) => ({
+              title: job.title,
+              company: job.company,
+              location: job.location,
+              description: job.snippet,
+              salary: job.salary || "No salary information",
+              url: job.link,
+              requirements: job.requirements || [],
+            }));
+
+          setJobs(formattedJobs);
+        }
+      };
+      //Send request to the server
+      http.send(params);
+    } catch (error) {
+      setJobError(
+        "Failed to fetch job recommendations. Please try again later."
+      );
+      console.error("Error fetching jobs:", error);
+    } finally {
+      setIsLoadingJobs(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
         <div className="user-status-container">
           <button className="theme-toggle" onClick={toggleTheme}>
-            {theme === "light" ? "🌙" : "☀️"}
+            <i
+              className={`fas ${theme === "light" ? "fa-moon" : "fa-sun"}`}
+            ></i>
           </button>
           {user ? (
             <div className="user-info-container">
@@ -955,7 +1094,11 @@ function App() {
               >
                 <span className="user-email">{user.email}</span>
                 <div className="user-avatar">
-                  {user.email?.[0].toUpperCase() || "U"}
+                  {user.photoURL ? (
+                    <img src={user.photoURL} alt={user.displayName || "User"} />
+                  ) : (
+                    <i className="fas fa-user"></i>
+                  )}
                 </div>
               </div>
               {showDropdown && (
@@ -1317,6 +1460,87 @@ function App() {
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Job Recommendations Section */}
+                  <div className="job-recommendations">
+                    <h2>Recommended Jobs</h2>
+                    <div className="job-filters">
+                      <button
+                        className="filter-toggle-button"
+                        onClick={() => setShowJobFilters(!showJobFilters)}
+                      >
+                        {showJobFilters ? "Hide Filters" : "Show Filters"}
+                      </button>
+
+                      {showJobFilters && (
+                        <div className="filters-container">
+                          <div className="filter-group">
+                            <label>Location:</label>
+                            <select
+                              value={selectedState}
+                              onChange={(e) => {
+                                setSelectedState(e.target.value);
+                                searchJobs(e.target.value);
+                              }}
+                            >
+                              {US_STATES.map((state) => (
+                                <option key={state} value={state}>
+                                  {state}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {isLoadingJobs ? (
+                      <div className="loading">
+                        Loading job recommendations...
+                      </div>
+                    ) : jobError ? (
+                      <div className="error">{jobError}</div>
+                    ) : jobs.length > 0 ? (
+                      <div className="jobs-grid">
+                        {jobs.map((job, index) => (
+                          <div key={index} className="job-card">
+                            <h3>{job.title}</h3>
+                            <p className="company">{job.company}</p>
+                            <p className="location">
+                              <i className="fas fa-map-marker-alt"></i>{" "}
+                              {job.location}
+                            </p>
+                            <p className="salary">
+                              <i className="fas fa-money-bill-wave"></i>{" "}
+                              {job.salary}
+                            </p>
+                            <div className="job-description">
+                              <p>{job.description}</p>
+                            </div>
+                            {job.requirements.length > 0 && (
+                              <div className="requirements">
+                                <h4>Requirements:</h4>
+                                <ul>
+                                  {job.requirements.map((req, idx) => (
+                                    <li key={idx}>{req}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            <a
+                              href={job.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="apply-button"
+                            >
+                              Apply Now
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>No job recommendations available at the moment.</p>
+                    )}
                   </div>
                 </section>
               )}

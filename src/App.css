@@ -1105,4 +1105,230 @@ h2 {
   transform: scale(1.1);
   background-color: var(--hover-color);
   box-shadow: var(--hover-shadow);
+}
+
+.signed-in-message {
+  text-align: center;
+  padding: 1.5rem;
+  background-color: var(--card-background);
+  border-radius: 12px;
+  margin: 1rem 0;
+  box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+.signed-in-message p {
+  margin: 0.5rem 0;
+  color: var(--text-color);
+  font-size: 1rem;
+}
+
+.signed-in-message .user-email {
+  font-weight: 600;
+  color: var(--primary-color);
+  font-size: 1.1rem;
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.auth-button.sign-out-button {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+}
+
+.auth-button.sign-out-button:hover {
+  background-color: #c82333;
+}
+
+/* Dark mode specific styles */
+[data-theme="dark"] .signed-in-message {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+}
+
+[data-theme="dark"] .signed-in-message p {
+  color: #e0e0e0;
+}
+
+[data-theme="dark"] .signed-in-message .user-email {
+  color: #64b5f6;
+}
+
+/* Job Recommendations Styles */
+.job-recommendations {
+  margin-top: 3rem;
+  padding: 2rem;
+  background: var(--card-background);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  border: 2px solid var(--card-border-color);
+}
+
+.job-recommendations h2 {
+  color: var(--text-color);
+  margin-bottom: 2rem;
+  text-align: center;
+  font-size: 2rem;
+}
+
+.job-filters {
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: var(--background-color);
+  border-radius: 12px;
+  border: 1px solid var(--card-border-color);
+}
+
+.job-filters .filter-group {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.job-filters label {
+  color: var(--text-color);
+  font-weight: 500;
+  min-width: 100px;
+}
+
+.job-filters select {
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 2px solid var(--input-border-color);
+  background-color: var(--card-background);
+  color: var(--text-color);
+  font-size: 1rem;
+  cursor: pointer;
+  transition: border-color 0.3s ease;
+}
+
+.job-filters select:hover {
+  border-color: var(--primary-color);
+}
+
+.job-filters select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-color-light);
+}
+
+.jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+.job-card {
+  background: var(--background-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--card-border-color);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.job-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--hover-shadow);
+}
+
+.job-card h3 {
+  color: var(--primary-color);
+  margin-bottom: 0.5rem;
+  font-size: 1.2rem;
+}
+
+.job-card .company {
+  color: var(--text-color);
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.job-card .location,
+.job-card .salary {
+  color: var(--subtitle-color);
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.job-card .location i,
+.job-card .salary i {
+  color: var(--primary-color);
+}
+
+.job-card .job-description {
+  color: var(--text-color);
+  margin: 1rem 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.job-card .requirements {
+  margin: 1rem 0;
+}
+
+.job-card .requirements h4 {
+  color: var(--text-color);
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.job-card .requirements ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.job-card .requirements li {
+  color: var(--subtitle-color);
+  margin-bottom: 0.25rem;
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.job-card .requirements li::before {
+  content: "•";
+  color: var(--primary-color);
+  position: absolute;
+  left: 0;
+}
+
+.job-card .apply-button {
+  display: inline-block;
+  background-color: var(--primary-color);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: center;
+  margin-top: 1rem;
+  transition: background-color 0.3s ease;
+  width: 100%;
+}
+
+.job-card .apply-button:hover {
+  background-color: var(--secondary-color);
+}
+
+@media (max-width: 768px) {
+  .jobs-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .job-recommendations {
+    padding: 1rem;
+  }
+  
+  .job-card {
+    padding: 1rem;
+  }
 } 
