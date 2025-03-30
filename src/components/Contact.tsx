@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getFunctions, httpsCallable } from "firebase/functions";
 import "./Contact.css";
 
 interface ContactForm {
@@ -7,31 +8,17 @@ interface ContactForm {
   message: string;
 }
 
-function Contact() {
+const Contact = () => {
   const [formData, setFormData] = useState<ContactForm>({
     name: "",
     email: "",
     message: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<
-    "idle" | "success" | "error"
-  >("idle");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      // TODO: Implement actual form submission
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Simulate API call
-      setSubmitStatus("success");
-    } catch (error) {
-      setSubmitStatus("error");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const [submitStatus, setSubmitStatus] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -41,6 +28,38 @@ function Contact() {
       ...prev,
       [name]: value,
     }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setSubmitStatus(null);
+
+    try {
+      const functions = getFunctions();
+      const sendEmail = httpsCallable(functions, "sendContactEmail");
+      await sendEmail(formData);
+
+      setSubmitStatus({
+        type: "success",
+        message: "Thank you for your message! We will get back to you soon.",
+      });
+
+      // Clear form
+      setFormData({
+        name: "",
+        email: "",
+        message: "",
+      });
+    } catch (error: any) {
+      console.error("Error sending email:", error);
+      setSubmitStatus({
+        type: "error",
+        message: "Failed to send message. Please try again later.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -129,15 +148,9 @@ function Contact() {
               {isSubmitting ? "Sending..." : "Send Message"}
             </button>
 
-            {submitStatus === "success" && (
-              <div className="success-message">
-                Thank you for your message! We'll get back to you soon.
-              </div>
-            )}
-
-            {submitStatus === "error" && (
-              <div className="error-message">
-                Something went wrong. Please try again later.
+            {submitStatus && (
+              <div className={`status-message ${submitStatus.type}`}>
+                {submitStatus.message}
               </div>
             )}
           </form>
@@ -145,6 +158,6 @@ function Contact() {
       </div>
     </div>
   );
-}
+};
 
 export default Contact;
