@@ -138,6 +138,12 @@ body {
   border-color: var(--primary-color);
 }
 
+.career-input:disabled {
+  background-color: var(--input-bg-disabled);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 .analyze-button {
   padding: 1rem 2rem;
   background-color: var(--primary-color);
@@ -155,29 +161,50 @@ body {
   background-color: var(--secondary-color);
 }
 
-.analyze-button:disabled {
-  opacity: 0.7;
+.analyze-button.disabled {
+  background-color: var(--button-bg-disabled);
   cursor: not-allowed;
+  opacity: 0.7;
+  transform: none;
+  box-shadow: none;
 }
 
-.loading-state {
-  text-align: center;
-  padding: 2rem;
+.analyze-button.disabled:hover {
+  background-color: var(--button-bg-disabled);
+  transform: none;
+  box-shadow: none;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid var(--border-color);
-  border-top: 4px solid var(--primary-color);
+.input-section .loading-state {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.input-section .loading-state .spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary-color);
   border-radius: 50%;
-  margin: 0 auto 1rem;
   animation: spin 1s linear infinite;
 }
 
+.input-section .loading-state p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .results-section {
@@ -254,67 +281,109 @@ h2 {
 
 .path-timeline {
   position: relative;
-  padding-left: 2rem;
-  background-color: var(--card-background);
-  padding: 1.5rem;
-  border-radius: 16px;
-  border: 2px solid var(--card-border-color);
-  box-shadow: var(--card-shadow);
+  padding: 2rem 0;
+  margin: 2rem 0;
 }
 
 .timeline-step {
   position: relative;
-  padding-bottom: 2rem;
-  background-color: var(--card-background);
-  padding: 1rem;
-  border-radius: 16px;
-  border: 2px solid var(--card-border-color);
-  margin-bottom: 1rem;
-  box-shadow: var(--card-shadow);
-}
-
-.timeline-step:last-child {
-  padding-bottom: 0;
-}
-
-.timeline-marker {
-  position: absolute;
-  left: -2rem;
-  top: 0;
-  width: 1rem;
-  height: 1rem;
-  background-color: var(--primary-color);
-  border-radius: 50%;
+  padding-left: 4.5rem;
+  margin-bottom: 2rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
 .timeline-step:not(:last-child)::before {
   content: '';
   position: absolute;
-  left: -1.5rem;
-  top: 1rem;
-  width: 2px;
-  height: calc(100% - 1rem);
-  background-color: var(--border-color);
+  left: 1.9rem;
+  top: 5.5rem;
+  width: 4px;
+  height: calc(100% + 1.5rem);
+  background: var(--primary-color);
+  opacity: 0.3;
+  border-radius: 2px;
+}
+
+.timeline-marker {
+  position: absolute;
+  left: 1.5rem;
+  top: 5rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--primary-color);
+  border: 3px solid var(--background-color);
+  z-index: 1;
+  transition: all 0.3s ease;
 }
 
 .timeline-content {
   background-color: var(--card-background);
-  padding: 1.5rem;
+  padding: 1.75rem;
   border-radius: 16px;
   border: 2px solid var(--card-border-color);
   box-shadow: var(--card-shadow);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.timeline-content:hover {
+  transform: translateX(4px);
+  box-shadow: var(--hover-shadow);
+}
+
+.timeline-content.selected {
+  background-color: #22c55e;
+  border-color: #22c55e;
+}
+
+.timeline-content.selected h3,
+.timeline-content.selected p {
+  color: white;
+}
+
+.timeline-content.selected .timeline-duration {
+  background-color: white;
+  color: #22c55e;
 }
 
 .timeline-content h3 {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
   font-size: 1.25rem;
+  color: var(--text-color);
+  transition: color 0.3s ease;
+  font-weight: 600;
+}
+
+.timeline-content p {
+  color: var(--text-color);
+  opacity: 0.8;
+  transition: color 0.3s ease;
+  line-height: 1.5;
+  margin-bottom: 1rem;
 }
 
 .timeline-duration {
   display: inline-block;
-  margin-top: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 1rem;
   font-size: 0.875rem;
-  color: #94a3b8;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.timeline-step:hover .timeline-marker {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 6px rgba(108, 92, 231, 0.1);
+}
+
+.timeline-step:hover .timeline-content {
+  transform: translateX(4px);
 }
 
 .courses-grid {

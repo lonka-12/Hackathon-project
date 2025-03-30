@@ -74,26 +74,32 @@ const Contact = () => {
 
           <div className="contact-details">
             <div className="contact-item">
-              <i className="fas fa-envelope"></i>
-              <div>
-                <h3>Email</h3>
-                <p>support@skillgapanalyzer.com</p>
+              <div className="contact-item-content">
+                <i className="fas fa-envelope"></i>
+                <div>
+                  <h3>Email</h3>
+                  <p>ansgup0718@gmail.com</p>
+                </div>
               </div>
             </div>
 
             <div className="contact-item">
-              <i className="fas fa-clock"></i>
-              <div>
-                <h3>Response Time</h3>
-                <p>Within 24 hours</p>
+              <div className="contact-item-content">
+                <i className="fas fa-clock"></i>
+                <div>
+                  <h3>Response Time</h3>
+                  <p>Within 24 hours</p>
+                </div>
               </div>
             </div>
 
             <div className="contact-item">
-              <i className="fas fa-map-marker-alt"></i>
-              <div>
-                <h3>Location</h3>
-                <p>Global Support</p>
+              <div className="contact-item-content">
+                <i className="fas fa-map-marker-alt"></i>
+                <div>
+                  <h3>Location</h3>
+                  <p>United States</p>
+                </div>
               </div>
             </div>
           </div>

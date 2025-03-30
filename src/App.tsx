@@ -25,9 +25,10 @@ interface ResumeAnalysis {
 }
 
 interface LearningStep {
-  title: string;
+  skill: string;
   description: string;
   duration: string;
+  isSelected: boolean;
 }
 
 interface Course {
@@ -231,6 +232,13 @@ const US_STATES = [
   "Wyoming",
 ];
 
+interface LearningPathStep {
+  skill: string;
+  description: string;
+  duration: string;
+  isSelected: boolean;
+}
+
 function App() {
   const [currentPage, setCurrentPage] = useState<"home" | "contact" | "auth">(
     "home"
@@ -238,7 +246,7 @@ function App() {
   const [careerGoal, setCareerGoal] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [learningPath, setLearningPath] = useState<LearningStep[]>([]);
+  const [learningPath, setLearningPath] = useState<LearningPathStep[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [showSignInNotice, setShowSignInNotice] = useState(false);
@@ -272,6 +280,9 @@ function App() {
   const [showJobFilters, setShowJobFilters] = useState(false);
   const [analyzedJobs, setAnalyzedJobs] = useState<AnalyzedJob[]>([]);
   const [jobTitles, setJobTitles] = useState<string[]>([]);
+  const [isLoadingSkills, setIsLoadingSkills] = useState(false);
+  const [isLoadingPath, setIsLoadingPath] = useState(false);
+  const [isLoadingCourses, setIsLoadingCourses] = useState(false);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -397,9 +408,12 @@ function App() {
           date: job.date,
           skills: job.skills.map((skill) => ({
             ...skill,
-            progress: skill.progress || 0, // Ensure progress is saved
+            progress: skill.progress || 0,
           })),
-          learningPath: job.learningPath,
+          learningPath: job.learningPath.map((step) => ({
+            ...step,
+            isSelected: step.isSelected || false,
+          })),
           courses: job.courses,
           jobs: job.jobs,
         };
@@ -491,10 +505,29 @@ function App() {
     skills: Skill[]
   ): Promise<LearningStep[]> => {
     const skillsList = skills.map((s) => s.name).join(", ");
-    const prompt = `Create a learning path for becoming a ${careerGoal}. 
+    const prompt = `Create a detailed learning path for becoming a ${careerGoal}. 
                    Consider these required skills: ${skillsList}
-                   Format the response as a JSON array of objects with properties: title, description, duration.
-                   Example: [{"title": "Foundation", "description": "Learn basics", "duration": "3 months"}]`;
+
+                   For each step in the learning path, provide a comprehensive description that includes:
+                   1. What the skill entails and why it's important
+                   2. Key concepts and technologies involved
+                   3. How it relates to the career goal
+                   4. Practical applications and real-world usage
+
+                   Format the response as a JSON array of objects with properties: skill, description, duration, isSelected.
+                   Each description should be 3-4 detailed sentences.
+                   IMPORTANT: Set isSelected to false for all steps.
+                   Never set the duration to 'ongoing' or 'flexible'
+
+                   Example:
+                   [
+                     {
+                       "skill": "Foundation",
+                       "description": "Master the fundamental principles of programming including variables, data structures, and algorithms which form the backbone of software development. Understanding these core concepts will enable you to tackle more complex challenges and write efficient, maintainable code. This foundation will also help you quickly adapt to new programming languages and frameworks as they emerge in the industry.",
+                       "duration": "3 months",
+                       "isSelected": false
+                     }
+                   ]`;
 
     try {
       const response = await fetch(
@@ -509,7 +542,7 @@ function App() {
             model: "gpt-3.5-turbo",
             messages: [{ role: "user", content: prompt }],
             temperature: 0.7,
-            max_tokens: 1000,
+            max_tokens: 1500,
           }),
         }
       );
@@ -523,10 +556,16 @@ function App() {
 
       const data = await response.json();
       const content = data.choices[0].message.content;
-      return JSON.parse(content);
+      const parsedContent = JSON.parse(content);
+
+      // Ensure each step has isSelected set to false
+      return parsedContent.map((step: LearningStep) => ({
+        ...step,
+        isSelected: false,
+      }));
     } catch (error) {
-      console.error("Detailed error:", error);
-      throw error;
+      console.error("Error generating learning path:", error);
+      return [];
     }
   };
 
@@ -859,7 +898,7 @@ function App() {
   const saveAnalyzedJob = (
     careerGoal: string,
     skills: Skill[],
-    learningPath: LearningStep[],
+    learningPath: LearningPathStep[],
     courses: Course[],
     jobs: Job[]
   ) => {
@@ -906,47 +945,72 @@ function App() {
       return;
     }
 
-    setIsLoading(true);
-    try {
-      // Get skill gap analysis
-      const analyzedSkills = await analyzeSkillGap(careerGoal);
-      setSkills(analyzedSkills);
+    // Reset all states
+    setIsLoadingSkills(true);
+    setIsLoadingPath(true);
+    setIsLoadingCourses(true);
+    setIsLoadingJobs(true);
 
-      // Generate learning path
-      const path = await generateLearningPath(careerGoal, analyzedSkills);
-      setLearningPath(path);
-
-      // Get course recommendations
-      const recommendedCourses = await getCourseRecommendations(
-        careerGoal,
-        analyzedSkills
-      );
-      setCourses(recommendedCourses);
-
-      // Search for jobs
-      await searchJobs(selectedState);
-
-      // Save the analyzed job with all data including jobs
-      saveAnalyzedJob(
-        careerGoal,
-        analyzedSkills,
-        path,
-        recommendedCourses,
-        jobs
-      );
-
-      // Show sign-in notice if user is not signed in
-      if (!user) {
-        setShowSignInNotice(true);
-      }
-    } catch (error: any) {
-      console.error("Error:", error);
-      alert(
-        `An error occurred while analyzing your career path: ${error.message}`
-      );
-    } finally {
-      setIsLoading(false);
+    // Show sign-in notice if user is not signed in
+    if (!user) {
+      setShowSignInNotice(true);
     }
+
+    // Analyze skills
+    analyzeSkillGap(careerGoal)
+      .then((analyzedSkills) => {
+        setSkills(analyzedSkills);
+        setIsLoadingSkills(false);
+
+        // Generate learning path after skills are analyzed
+        return generateLearningPath(careerGoal, analyzedSkills);
+      })
+      .then((path) => {
+        setLearningPath(path);
+        setIsLoadingPath(false);
+      })
+      .catch((error) => {
+        console.error("Error in skills/path analysis:", error);
+        setIsLoadingSkills(false);
+        setIsLoadingPath(false);
+      });
+
+    // Start course recommendations in parallel
+    getCourseRecommendations(careerGoal, skills)
+      .then((recommendedCourses) => {
+        setCourses(recommendedCourses);
+        setIsLoadingCourses(false);
+      })
+      .catch((error) => {
+        console.error("Error fetching course recommendations:", error);
+        setIsLoadingCourses(false);
+      });
+
+    // Start job search in parallel
+    searchJobs(selectedState).catch((error) => {
+      console.error("Error fetching jobs:", error);
+      setIsLoadingJobs(false);
+    });
+
+    // Save analyzed job data when all data is available
+    Promise.all([
+      analyzeSkillGap(careerGoal),
+      generateLearningPath(careerGoal, skills),
+      getCourseRecommendations(careerGoal, skills),
+      new Promise((resolve) => setTimeout(() => resolve(jobs), 1000)), // Wait for jobs to load
+    ])
+      .then(([analyzedSkills, path, recommendedCourses, currentJobs]) => {
+        saveAnalyzedJob(
+          careerGoal,
+          analyzedSkills,
+          path,
+          recommendedCourses,
+          currentJobs as Job[]
+        );
+      })
+      .catch((error) => {
+        console.error("Error saving analyzed job:", error);
+      });
   };
 
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1101,7 +1165,11 @@ function App() {
   };
 
   const calculateProgress = (e: React.MouseEvent | MouseEvent) => {
-    const progressBar = e.currentTarget as HTMLElement;
+    const progressBar = (e.currentTarget as HTMLElement).closest(
+      ".progress-bar"
+    );
+    if (!progressBar) return 0;
+
     const rect = progressBar.getBoundingClientRect();
     const progress = ((e.clientX - rect.left) / rect.width) * 100;
     return Math.max(0, Math.min(100, progress));
@@ -1195,6 +1263,25 @@ function App() {
 
     // Remove from jobTitles
     setJobTitles((prev) => prev.filter((t) => t !== title));
+  };
+
+  const handleSkillSelection = (skillIndex: number) => {
+    setLearningPath((prevPath) => {
+      const newPath = prevPath.map((step, index) =>
+        index === skillIndex ? { ...step, isSelected: !step.isSelected } : step
+      );
+
+      // Update the learning path in analyzedJobs
+      if (careerGoal) {
+        setAnalyzedJobs((prev) =>
+          prev.map((job) =>
+            job.title === careerGoal ? { ...job, learningPath: newPath } : job
+          )
+        );
+      }
+
+      return newPath;
+    });
   };
 
   return (
@@ -1358,19 +1445,59 @@ function App() {
                   onKeyPress={handleKeyPress}
                   placeholder="Enter your career goal (e.g., 'Software Engineer')"
                   className="career-input"
+                  disabled={
+                    isLoadingSkills ||
+                    isLoadingPath ||
+                    isLoadingCourses ||
+                    isLoadingJobs
+                  }
                 />
                 <button
                   onClick={handleAnalyze}
-                  disabled={isLoading}
-                  className="analyze-button"
+                  disabled={
+                    isLoadingSkills ||
+                    isLoadingPath ||
+                    isLoadingCourses ||
+                    isLoadingJobs
+                  }
+                  className={`analyze-button ${
+                    isLoadingSkills ||
+                    isLoadingPath ||
+                    isLoadingCourses ||
+                    isLoadingJobs
+                      ? "disabled"
+                      : ""
+                  }`}
                 >
-                  {isLoading ? "Analyzing..." : "Analyze Skills"}
+                  {isLoadingSkills ||
+                  isLoadingPath ||
+                  isLoadingCourses ||
+                  isLoadingJobs
+                    ? "Analyzing..."
+                    : "Analyze Skills"}
                 </button>
               </div>
               {showSignInNotice && !user && (
                 <p className="sign-in-notice">
                   Sign in to analyze skills and save your progress!
                 </p>
+              )}
+              {(isLoadingSkills ||
+                isLoadingPath ||
+                isLoadingCourses ||
+                isLoadingJobs) && (
+                <div className="loading-state">
+                  <div className="spinner"></div>
+                  <p>
+                    {isLoadingSkills
+                      ? "Analyzing required skills..."
+                      : isLoadingPath
+                      ? "Generating learning path..."
+                      : isLoadingCourses
+                      ? "Finding relevant courses..."
+                      : "Searching for jobs..."}
+                  </p>
+                </div>
               )}
             </section>
 
@@ -1388,333 +1515,407 @@ function App() {
                 <section className="results-section">
                   <div className="skill-gap-analysis">
                     <h2>Required Skills</h2>
-                    <div className="skills-grid">
-                      {skills.map((skill, index) => (
-                        <div key={index} className="skill-card">
-                          <h3>{skill.name}</h3>
-                          <p
-                            className={`importance ${(
-                              skill.importance || "Medium"
-                            ).toLowerCase()}`}
-                          >
-                            {skill.importance || "Medium"}
-                          </p>
-                          <p>{skill.description}</p>
-                          <div className="skill-progress">
-                            <div
-                              className="progress-bar"
-                              onClick={(e) => {
-                                const progress = calculateProgress(e);
-                                handleProgressChange(skill.name, progress);
-                              }}
-                              onMouseDown={(e) =>
-                                handleProgressMouseDown(skill.name, e)
-                              }
-                              onMouseMove={handleProgressMouseMove}
-                              onMouseUp={handleProgressMouseUp}
-                              onMouseLeave={handleProgressMouseUp}
-                            >
-                              <div
-                                className="progress-fill"
-                                style={{ width: `${skill.progress}%` }}
-                              />
+                    {isLoadingSkills ? (
+                      <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Analyzing required skills...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="skills-grid">
+                          {skills.map((skill, index) => (
+                            <div key={index} className="skill-card">
+                              <h3>{skill.name}</h3>
+                              <p
+                                className={`importance ${(
+                                  skill.importance || "Medium"
+                                ).toLowerCase()}`}
+                              >
+                                {skill.importance || "Medium"}
+                              </p>
+                              <p>{skill.description}</p>
+                              <div className="skill-progress">
+                                <div
+                                  className="progress-bar"
+                                  onClick={(e) => {
+                                    const progress = calculateProgress(e);
+                                    handleProgressChange(skill.name, progress);
+                                  }}
+                                  onMouseDown={(e) =>
+                                    handleProgressMouseDown(skill.name, e)
+                                  }
+                                  onMouseMove={handleProgressMouseMove}
+                                  onMouseUp={handleProgressMouseUp}
+                                  onMouseLeave={handleProgressMouseUp}
+                                >
+                                  <div
+                                    className="progress-fill"
+                                    style={{ width: `${skill.progress}%` }}
+                                  />
+                                </div>
+                                <div className="progress-controls">
+                                  <input
+                                    type="number"
+                                    className="progress-input"
+                                    value={skill.progress}
+                                    onChange={(e) =>
+                                      handleProgressInputChange(
+                                        skill.name,
+                                        e.target.value
+                                      )
+                                    }
+                                    min="0"
+                                    max="100"
+                                  />
+                                  <span className="progress-percentage">%</span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="progress-controls">
-                              <input
-                                type="number"
-                                className="progress-input"
-                                value={skill.progress}
-                                onChange={(e) =>
-                                  handleProgressInputChange(
-                                    skill.name,
-                                    e.target.value
-                                  )
-                                }
-                                min="0"
-                                max="100"
-                              />
-                              <span className="progress-percentage">%</span>
+                          ))}
+                        </div>
+                        <div className="overall-progress">
+                          <h3>Overall Progress</h3>
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${
+                                  skills.reduce(
+                                    (acc, skill) => acc + (skill.progress || 0),
+                                    0
+                                  ) / skills.length
+                                }%`,
+                              }}
+                            ></div>
+                          </div>
+                          <p className="progress-text">
+                            {Math.round(
+                              skills.reduce(
+                                (acc, skill) => acc + (skill.progress || 0),
+                                0
+                              ) / skills.length
+                            )}
+                            % Complete
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="learning-path">
+                    <h2>Recommended Learning Path</h2>
+                    {isLoadingPath ? (
+                      <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Generating learning path...</p>
+                      </div>
+                    ) : (
+                      <div className="path-timeline">
+                        {learningPath.map((step, index) => (
+                          <div key={index} className="timeline-step">
+                            <div className="timeline-marker"></div>
+                            <div
+                              className={`timeline-content ${
+                                step.isSelected ? "selected" : ""
+                              }`}
+                              onClick={() => handleSkillSelection(index)}
+                            >
+                              <h3>{step.skill}</h3>
+                              <p>{step.description}</p>
+                              <span className="timeline-duration">
+                                {step.duration}
+                              </span>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="overall-progress">
                       <h3>Overall Progress</h3>
                       <div className="progress-bar">
                         <div
                           className="progress-fill"
                           style={{
-                            width: `${
-                              skills.reduce(
-                                (acc, skill) => acc + (skill.progress || 0),
-                                0
-                              ) / skills.length
-                            }%`,
+                            width:
+                              learningPath.length > 0
+                                ? `${
+                                    (learningPath.filter(
+                                      (step) => step.isSelected
+                                    ).length /
+                                      learningPath.length) *
+                                    100
+                                  }%`
+                                : "0%",
                           }}
                         ></div>
                       </div>
                       <p className="progress-text">
                         {Math.round(
-                          skills.reduce(
-                            (acc, skill) => acc + (skill.progress || 0),
-                            0
-                          ) / skills.length
+                          learningPath.length > 0
+                            ? (learningPath.filter((step) => step.isSelected)
+                                .length /
+                                learningPath.length) *
+                                100
+                            : 0
                         )}
                         % Complete
                       </p>
                     </div>
                   </div>
 
-                  <div className="learning-path">
-                    <h2>Recommended Learning Path</h2>
-                    <div className="path-timeline">
-                      {learningPath.map((step, index) => (
-                        <div key={index} className="timeline-step">
-                          <div className="timeline-marker"></div>
-                          <div className="timeline-content">
-                            <h3>{step.title}</h3>
-                            <p>{step.description}</p>
-                            <span className="timeline-duration">
-                              {step.duration}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
                   <div className="course-recommendations">
                     <h2>Course Recommendations</h2>
-                    <div className="course-filters">
-                      <button
-                        className="filter-toggle-button"
-                        onClick={() => setShowCourseFilters(!showCourseFilters)}
-                      >
-                        {showCourseFilters ? "Hide Filters" : "Show Filters"}
-                      </button>
-
-                      {showCourseFilters && (
-                        <div className="filters-container">
-                          <div className="filter-group">
-                            <label>Price Range:</label>
-                            <select
-                              value={courseFilters.priceRange}
-                              onChange={(e) =>
-                                setCourseFilters({
-                                  ...courseFilters,
-                                  priceRange: e.target
-                                    .value as CourseFilters["priceRange"],
-                                })
-                              }
-                            >
-                              <option value="Free">Free</option>
-                              <option value="Under $50">Under $50</option>
-                              <option value="$50-$100">$50-$100</option>
-                              <option value="Over $100">Over $100</option>
-                            </select>
-                          </div>
-
-                          <div className="filter-group">
-                            <label>Platform:</label>
-                            <select
-                              value={courseFilters.platform}
-                              onChange={(e) =>
-                                setCourseFilters({
-                                  ...courseFilters,
-                                  platform: e.target.value,
-                                })
-                              }
-                            >
-                              <option value="All">All Platforms</option>
-                              <option value="Udemy">Udemy</option>
-                              <option value="Coursera">Coursera</option>
-                              <option value="edX">edX</option>
-                              <option value="LinkedIn">
-                                LinkedIn Learning
-                              </option>
-                              <option value="Pluralsight">Pluralsight</option>
-                            </select>
-                          </div>
-
-                          <div className="filter-group">
-                            <label>Minimum Rating:</label>
-                            <select
-                              value={courseFilters.minRating}
-                              onChange={(e) =>
-                                setCourseFilters({
-                                  ...courseFilters,
-                                  minRating: parseFloat(e.target.value),
-                                })
-                              }
-                            >
-                              <option value="4.0">4.0+ Stars</option>
-                              <option value="4.5">4.5+ Stars</option>
-                              <option value="4.8">4.8+ Stars</option>
-                            </select>
-                          </div>
-
-                          <div className="filter-group">
-                            <label>Workload:</label>
-                            <select
-                              value={courseFilters.workload}
-                              onChange={(e) =>
-                                setCourseFilters({
-                                  ...courseFilters,
-                                  workload: e.target
-                                    .value as CourseFilters["workload"],
-                                })
-                              }
-                            >
-                              <option value="Short">Short (1-10 hours)</option>
-                              <option value="Medium">
-                                Medium (10-30 hours)
-                              </option>
-                              <option value="Long">Long (30+ hours)</option>
-                            </select>
-                          </div>
-
+                    {isLoadingCourses ? (
+                      <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Finding relevant courses...</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="course-filters">
                           <button
-                            className="search-courses-button"
-                            onClick={handleCourseSearch}
-                            disabled={isSearchingCourses}
+                            className="filter-toggle-button"
+                            onClick={() =>
+                              setShowCourseFilters(!showCourseFilters)
+                            }
                           >
-                            {isSearchingCourses
-                              ? "Searching..."
-                              : "Search Courses"}
+                            {showCourseFilters
+                              ? "Hide Filters"
+                              : "Show Filters"}
                           </button>
-                        </div>
-                      )}
-                    </div>
 
-                    <div className="courses-grid">
-                      {(filteredCourses.length > 0
-                        ? filteredCourses
-                        : courses
-                      ).map((course, index) => (
-                        <div key={index} className="course-card">
-                          <h3>{course.title}</h3>
-                          <p className="platform">{course.platform}</p>
-                          {course.description && (
-                            <p className="course-description">
-                              {course.description}
-                            </p>
+                          {showCourseFilters && (
+                            <div className="filters-container">
+                              <div className="filter-group">
+                                <label>Price Range:</label>
+                                <select
+                                  value={courseFilters.priceRange}
+                                  onChange={(e) =>
+                                    setCourseFilters({
+                                      ...courseFilters,
+                                      priceRange: e.target
+                                        .value as CourseFilters["priceRange"],
+                                    })
+                                  }
+                                >
+                                  <option value="Free">Free</option>
+                                  <option value="Under $50">Under $50</option>
+                                  <option value="$50-$100">$50-$100</option>
+                                  <option value="Over $100">Over $100</option>
+                                </select>
+                              </div>
+
+                              <div className="filter-group">
+                                <label>Platform:</label>
+                                <select
+                                  value={courseFilters.platform}
+                                  onChange={(e) =>
+                                    setCourseFilters({
+                                      ...courseFilters,
+                                      platform: e.target.value,
+                                    })
+                                  }
+                                >
+                                  <option value="All">All Platforms</option>
+                                  <option value="Udemy">Udemy</option>
+                                  <option value="Coursera">Coursera</option>
+                                  <option value="edX">edX</option>
+                                  <option value="LinkedIn">
+                                    LinkedIn Learning
+                                  </option>
+                                  <option value="Pluralsight">
+                                    Pluralsight
+                                  </option>
+                                </select>
+                              </div>
+
+                              <div className="filter-group">
+                                <label>Minimum Rating:</label>
+                                <select
+                                  value={courseFilters.minRating}
+                                  onChange={(e) =>
+                                    setCourseFilters({
+                                      ...courseFilters,
+                                      minRating: parseFloat(e.target.value),
+                                    })
+                                  }
+                                >
+                                  <option value="4.0">4.0+ Stars</option>
+                                  <option value="4.5">4.5+ Stars</option>
+                                  <option value="4.8">4.8+ Stars</option>
+                                </select>
+                              </div>
+
+                              <div className="filter-group">
+                                <label>Workload:</label>
+                                <select
+                                  value={courseFilters.workload}
+                                  onChange={(e) =>
+                                    setCourseFilters({
+                                      ...courseFilters,
+                                      workload: e.target
+                                        .value as CourseFilters["workload"],
+                                    })
+                                  }
+                                >
+                                  <option value="Short">
+                                    Short (1-10 hours)
+                                  </option>
+                                  <option value="Medium">
+                                    Medium (10-30 hours)
+                                  </option>
+                                  <option value="Long">Long (30+ hours)</option>
+                                </select>
+                              </div>
+
+                              <button
+                                className="search-courses-button"
+                                onClick={handleCourseSearch}
+                                disabled={isSearchingCourses}
+                              >
+                                {isSearchingCourses
+                                  ? "Searching..."
+                                  : "Search Courses"}
+                              </button>
+                            </div>
                           )}
-                          <div className="course-details">
-                            {course.workload && (
-                              <span className="workload">
-                                <i className="fas fa-clock"></i>{" "}
-                                {course.workload}
-                              </span>
-                            )}
-                            {course.enrollmentCount && (
-                              <span className="enrollment">
-                                <i className="fas fa-users"></i>{" "}
-                                {course.enrollmentCount.toLocaleString()}{" "}
-                                enrolled
-                              </span>
-                            )}
-                          </div>
-                          <div className="rating">
-                            <span className="stars">
-                              {"★".repeat(Math.floor(course.rating))}
-                            </span>
-                            <span className="rating-value">
-                              {course.rating}
-                            </span>
-                          </div>
-                          <p className="price">{course.price}</p>
-                          <a
-                            href={course.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="course-link"
-                          >
-                            Learn More
-                          </a>
                         </div>
-                      ))}
-                    </div>
+
+                        <div className="courses-grid">
+                          {(filteredCourses.length > 0
+                            ? filteredCourses
+                            : courses
+                          ).map((course, index) => (
+                            <div key={index} className="course-card">
+                              <h3>{course.title}</h3>
+                              <p className="platform">{course.platform}</p>
+                              {course.description && (
+                                <p className="course-description">
+                                  {course.description}
+                                </p>
+                              )}
+                              <div className="course-details">
+                                {course.workload && (
+                                  <span className="workload">
+                                    <i className="fas fa-clock"></i>{" "}
+                                    {course.workload}
+                                  </span>
+                                )}
+                                {course.enrollmentCount && (
+                                  <span className="enrollment">
+                                    <i className="fas fa-users"></i>{" "}
+                                    {course.enrollmentCount.toLocaleString()}{" "}
+                                    enrolled
+                                  </span>
+                                )}
+                              </div>
+                              <div className="rating">
+                                <span className="stars">
+                                  {"★".repeat(Math.floor(course.rating))}
+                                </span>
+                                <span className="rating-value">
+                                  {course.rating}
+                                </span>
+                              </div>
+                              <p className="price">{course.price}</p>
+                              <a
+                                href={course.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="course-link"
+                              >
+                                Learn More
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
 
-                  {/* Job Recommendations Section */}
                   <div className="job-recommendations">
                     <h2>Recommended Jobs</h2>
-                    <div className="job-filters">
-                      <button
-                        className="filter-toggle-button"
-                        onClick={() => setShowJobFilters(!showJobFilters)}
-                      >
-                        {showJobFilters ? "Hide Filters" : "Show Filters"}
-                      </button>
-
-                      {showJobFilters && (
-                        <div className="filters-container">
-                          <div className="filter-group">
-                            <label>Location:</label>
-                            <select
-                              value={selectedState}
-                              onChange={(e) => {
-                                setSelectedState(e.target.value);
-                                searchJobs(e.target.value);
-                              }}
-                            >
-                              {US_STATES.map((state) => (
-                                <option key={state} value={state}>
-                                  {state}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      )}
-                    </div>
                     {isLoadingJobs ? (
-                      <div className="loading">
-                        Loading job recommendations...
+                      <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Searching for jobs...</p>
                       </div>
                     ) : jobError ? (
                       <div className="error">{jobError}</div>
-                    ) : jobs.length > 0 ? (
-                      <div className="jobs-grid">
-                        {jobs.map((job, index) => (
-                          <div key={index} className="job-card">
-                            <h3>{job.title}</h3>
-                            <p className="company">{job.company}</p>
-                            <p className="location">
-                              <i className="fas fa-map-marker-alt"></i>{" "}
-                              {job.location}
-                            </p>
-                            <p className="salary">
-                              <i className="fas fa-money-bill-wave"></i>{" "}
-                              {job.salary}
-                            </p>
-                            <div className="job-description">
-                              <p>{job.description}</p>
-                            </div>
-                            {job.requirements.length > 0 && (
-                              <div className="requirements">
-                                <h4>Requirements:</h4>
-                                <ul>
-                                  {job.requirements.map((req, idx) => (
-                                    <li key={idx}>{req}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            <a
-                              href={job.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="apply-button"
-                            >
-                              Apply Now
-                            </a>
-                          </div>
-                        ))}
-                      </div>
                     ) : (
-                      <p>No job recommendations available at the moment.</p>
+                      <>
+                        <div className="job-filters">
+                          <button
+                            className="filter-toggle-button"
+                            onClick={() => setShowJobFilters(!showJobFilters)}
+                          >
+                            {showJobFilters ? "Hide Filters" : "Show Filters"}
+                          </button>
+
+                          {showJobFilters && (
+                            <div className="filters-container">
+                              <div className="filter-group">
+                                <label>Location:</label>
+                                <select
+                                  value={selectedState}
+                                  onChange={(e) => {
+                                    setSelectedState(e.target.value);
+                                    searchJobs(e.target.value);
+                                  }}
+                                >
+                                  {US_STATES.map((state) => (
+                                    <option key={state} value={state}>
+                                      {state}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {jobs.length > 0 ? (
+                          <div className="jobs-grid">
+                            {jobs.map((job, index) => (
+                              <div key={index} className="job-card">
+                                <h3>{job.title}</h3>
+                                <p className="company">{job.company}</p>
+                                <p className="location">
+                                  <i className="fas fa-map-marker-alt"></i>{" "}
+                                  {job.location}
+                                </p>
+                                <p className="salary">
+                                  <i className="fas fa-money-bill-wave"></i>{" "}
+                                  {job.salary}
+                                </p>
+                                <div className="job-description">
+                                  <p>{job.description}</p>
+                                </div>
+                                {job.requirements.length > 0 && (
+                                  <div className="requirements">
+                                    <h4>Requirements:</h4>
+                                    <ul>
+                                      {job.requirements.map((req, idx) => (
+                                        <li key={idx}>{req}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                <a
+                                  href={job.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="apply-button"
+                                >
+                                  Apply Now
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p>No job recommendations available at the moment.</p>
+                        )}
+                      </>
                     )}
                   </div>
                 </section>
@@ -1726,10 +1927,6 @@ function App() {
           <Auth onAuthChange={setUser} />
         )}
       </main>
-
-      <footer className="app-footer">
-        <p>Powered by AI</p>
-      </footer>
 
       <div className="history-sidebar">
         <h3>Path History</h3>
