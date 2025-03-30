@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 import Contact from "./components/Contact";
-import Auth from "./components/Auth";
+import Auth from "./pages/Auth";
 import { auth, db } from "./firebase";
 import { doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
 import { User } from "firebase/auth";
+import { signOut } from "firebase/auth";
 
 interface Skill {
   name: string;
@@ -43,6 +44,13 @@ interface SearchResult {
   title: string;
   link: string;
   snippet: string;
+}
+
+interface CourseFilters {
+  priceRange: "Free" | "Under $50" | "$50-$100" | "Over $100";
+  platform: string;
+  minRating: number;
+  workload: "Short" | "Medium" | "Long";
 }
 
 // Manual course recommendations based on job titles
@@ -145,7 +153,9 @@ const GOOGLE_SEARCH_API_KEY = import.meta.env.VITE_GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_ENGINE_ID = import.meta.env.VITE_GOOGLE_SEARCH_ENGINE_ID;
 
 function App() {
-  const [currentPage, setCurrentPage] = useState<"home" | "contact">("home");
+  const [currentPage, setCurrentPage] = useState<"home" | "contact" | "auth">(
+    "home"
+  );
   const [careerGoal, setCareerGoal] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -153,6 +163,38 @@ function App() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [showSignInNotice, setShowSignInNotice] = useState(false);
+  const [showCourseFilters, setShowCourseFilters] = useState(false);
+  const [courseFilters, setCourseFilters] = useState<CourseFilters>({
+    priceRange: "Free",
+    platform: "All",
+    minRating: 4.0,
+    workload: "Medium",
+  });
+  const [filteredCourses, setFilteredCourses] = useState<Course[]>([]);
+  const [isSearchingCourses, setIsSearchingCourses] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isDragging, setIsDragging] = useState(false);
+  const [activeSkill, setActiveSkill] = useState<string | null>(null);
+
+  // Load theme from localStorage on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme") as "light" | "dark";
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute("data-theme", savedTheme);
+    }
+  }, []);
+
+  // Update theme when it changes
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
+  };
 
   // Load user progress when they sign in
   useEffect(() => {
@@ -170,6 +212,25 @@ function App() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // Add click outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const dropdown = document.getElementById("user-dropdown");
+      const userInfo = document.getElementById("user-info");
+      if (
+        dropdown &&
+        userInfo &&
+        !userInfo.contains(event.target as Node) &&
+        !dropdown.contains(event.target as Node)
+      ) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const loadUserProgress = async (userId: string) => {
@@ -282,7 +343,13 @@ function App() {
 
       const data = await response.json();
       const content = data.choices[0].message.content;
-      return JSON.parse(content);
+      const skills = JSON.parse(content);
+
+      // Add default progress of 0 to each skill
+      return skills.map((skill: Skill) => ({
+        ...skill,
+        progress: 0,
+      }));
     } catch (error) {
       console.error("Detailed error:", error);
       throw error;
@@ -335,21 +402,50 @@ function App() {
 
   const searchCourses = async (query: string): Promise<SearchResult[]> => {
     try {
-      // Search specifically for course pages from trusted platforms
-      const searchQuery = `${query} site:udemy.com OR site:coursera.org OR site:edx.org OR site:linkedin.com/learning OR site:pluralsight.com`;
+      // Search for courses with a more focused query
+      const searchQuery = `${query} "online course" OR "training program" OR "certification"`;
       const response = await fetch(
         `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_SEARCH_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(
           searchQuery
-        )}&num=5`
+        )}&num=10&exactTerms=${encodeURIComponent(query)}`
       );
 
       if (!response.ok) {
-        throw new Error("Search API request failed");
+        const errorData = await response.json();
+        console.error("Google API Error:", errorData);
+        throw new Error(
+          `Search API request failed: ${
+            errorData.error?.message || response.statusText
+          }`
+        );
       }
 
       const data = await response.json();
-      if (!data.items) {
-        return [];
+
+      if (!data.items || data.items.length === 0) {
+        // If no results found, try a broader search
+        const broaderQuery = `${query} learn tutorial`;
+        const broaderResponse = await fetch(
+          `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_SEARCH_API_KEY}&cx=${GOOGLE_SEARCH_ENGINE_ID}&q=${encodeURIComponent(
+            broaderQuery
+          )}&num=10`
+        );
+
+        if (!broaderResponse.ok) {
+          throw new Error("Broader search API request failed");
+        }
+
+        const broaderData = await broaderResponse.json();
+        if (!broaderData.items || broaderData.items.length === 0) {
+          console.error("No search results found for either query");
+          return [];
+        }
+
+        return broaderData.items.map((item: any) => ({
+          title: item.title,
+          link: item.link,
+          snippet: item.snippet,
+        }));
       }
 
       return data.items.map((item: any) => ({
@@ -359,6 +455,15 @@ function App() {
       }));
     } catch (error) {
       console.error("Search error:", error);
+      // Fallback to manual course recommendations if search fails
+      const manualCourses = courseRecommendations[query] || [];
+      if (manualCourses.length > 0) {
+        return manualCourses.map((course) => ({
+          title: course.title,
+          link: course.url,
+          snippet: course.description,
+        }));
+      }
       return [];
     }
   };
@@ -368,7 +473,7 @@ function App() {
     skills: Skill[]
   ): Promise<Course[]> => {
     // First, search for relevant courses
-    const searchQuery = `${careerGoal} course training certification`;
+    const searchQuery = `${careerGoal} course`;
     const searchResults = await searchCourses(searchQuery);
 
     if (searchResults.length === 0) {
@@ -627,11 +732,6 @@ function App() {
       return;
     }
 
-    if (!user) {
-      setShowSignInNotice(true);
-      return;
-    }
-
     if (!OPENAI_API_KEY) {
       alert("OpenAI API key is not configured. Please check your .env file.");
       return;
@@ -653,6 +753,11 @@ function App() {
         analyzedSkills
       );
       setCourses(recommendedCourses);
+
+      // Show sign-in notice if user is not signed in
+      if (!user) {
+        setShowSignInNotice(true);
+      }
     } catch (error: any) {
       console.error("Error:", error);
       alert(
@@ -669,25 +774,260 @@ function App() {
     }
   };
 
+  const handleCourseSearch = async () => {
+    setIsSearchingCourses(true);
+    try {
+      const searchQuery = `${careerGoal} course ${
+        courseFilters.platform !== "All"
+          ? `site:${courseFilters.platform.toLowerCase()}.com`
+          : ""
+      }`;
+      const searchResults = await searchCourses(searchQuery);
+
+      if (searchResults.length === 0) {
+        setFilteredCourses([]);
+        return;
+      }
+
+      // Create a prompt for OpenAI to analyze the search results with filters
+      const skillsList = skills
+        .map((s) => `${s.name} (${s.importance})`)
+        .join(", ");
+      const searchResultsText = searchResults
+        .map(
+          (result, index) =>
+            `${index + 1}. ${result.title}\n   URL: ${
+              result.link
+            }\n   Snippet: ${result.snippet}`
+        )
+        .join("\n\n");
+
+      const prompt = `You are a course recommendation system. Analyze these real course search results and provide detailed descriptions for each course.
+                     Career Goal: ${careerGoal}
+                     Required Skills: ${skillsList}
+                     
+                     Filter Requirements:
+                     - Price Range: ${courseFilters.priceRange}
+                     - Minimum Rating: ${courseFilters.minRating}
+                     - Workload Preference: ${courseFilters.workload}
+                     
+                     Here are the real course search results:
+                     ${searchResultsText}
+                     
+                     IMPORTANT: Respond with ONLY a JSON array containing course objects that match the filter requirements.
+                     Each course object must have these exact properties with double quotes:
+                     - "title": string (use the exact title from search results)
+                     - "platform": string (determine from the URL)
+                     - "rating": number (out of 5, between ${courseFilters.minRating} and 5.0)
+                     - "price": string (write "Free" if free, otherwise use format like "$49.99" or "$29.99/month")
+                     - "url": string (use the exact URL from search results)
+                     - "description": string (write a detailed, engaging description)
+                     - "workload": string (e.g., "40 hours" or "6-8 hours/week")
+                     - "enrollmentCount": number (realistic number between 10000 and 500000)
+                     - "startDate": string (write "Flexible" if self-paced)`;
+
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7,
+            max_tokens: 1000,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch course recommendations");
+      }
+
+      const data = await response.json();
+      const content = data.choices[0].message.content;
+      const cleanedContent = content.trim().replace(/```json\n?|\n?```/g, "");
+      const recommendedCourses = JSON.parse(cleanedContent);
+
+      setFilteredCourses(recommendedCourses);
+    } catch (error) {
+      console.error("Error searching courses:", error);
+      setFilteredCourses([]);
+    } finally {
+      setIsSearchingCourses(false);
+    }
+  };
+
+  const handleProgressChange = (skillName: string, newProgress: number) => {
+    setSkills((prevSkills) =>
+      prevSkills.map((skill) =>
+        skill.name === skillName
+          ? { ...skill, progress: Math.max(0, Math.min(100, newProgress)) }
+          : skill
+      )
+    );
+  };
+
+  const handleProgressInputChange = (skillName: string, value: string) => {
+    const newProgress = parseInt(value) || 0;
+    handleProgressChange(skillName, newProgress);
+  };
+
+  const handleProgressMouseDown = (skillName: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setActiveSkill(skillName);
+    const progress = calculateProgress(e);
+    handleProgressChange(skillName, progress);
+  };
+
+  const handleProgressMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !activeSkill) return;
+    e.preventDefault();
+    const progress = calculateProgress(e);
+    handleProgressChange(activeSkill, progress);
+  };
+
+  const handleProgressMouseUp = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    setActiveSkill(null);
+  };
+
+  const calculateProgress = (e: React.MouseEvent | MouseEvent) => {
+    const progressBar = document.querySelector(".progress-bar");
+    if (!progressBar) return 0;
+
+    const rect = progressBar.getBoundingClientRect();
+    // Calculate progress based on horizontal position only
+    const progress = ((e.clientX - rect.left) / rect.width) * 100;
+    return Math.max(0, Math.min(100, progress));
+  };
+
+  // Add event listeners for mouse move and up
+  useEffect(() => {
+    if (isDragging) {
+      const handleGlobalMouseMove = (e: MouseEvent) => {
+        if (!isDragging || !activeSkill) return;
+        const progress = calculateProgress(e);
+        handleProgressChange(activeSkill, progress);
+      };
+
+      const handleGlobalMouseUp = () => {
+        setIsDragging(false);
+        setActiveSkill(null);
+      };
+
+      window.addEventListener("mousemove", handleGlobalMouseMove, {
+        passive: false,
+      });
+      window.addEventListener("mouseup", handleGlobalMouseUp, {
+        passive: true,
+      });
+      window.addEventListener("mouseleave", handleGlobalMouseUp, {
+        passive: true,
+      });
+
+      return () => {
+        window.removeEventListener("mousemove", handleGlobalMouseMove);
+        window.removeEventListener("mouseup", handleGlobalMouseUp);
+        window.removeEventListener("mouseleave", handleGlobalMouseUp);
+      };
+    }
+  }, [isDragging, activeSkill]);
+
   return (
     <div className="app-container">
       <header className="app-header">
-        <nav className="nav-menu">
-          <button
-            className={`nav-button ${currentPage === "home" ? "active" : ""}`}
-            onClick={() => setCurrentPage("home")}
-          >
-            Home
+        <div className="user-status-container">
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {theme === "light" ? "🌙" : "☀️"}
           </button>
-          <button
-            className={`nav-button ${
-              currentPage === "contact" ? "active" : ""
-            }`}
-            onClick={() => setCurrentPage("contact")}
-          >
-            Contact
-          </button>
-        </nav>
+          {user ? (
+            <div className="user-info-container">
+              <div
+                id="user-info"
+                className="user-info"
+                onClick={() => setShowDropdown(!showDropdown)}
+              >
+                <span className="user-email">{user.email}</span>
+                <div className="user-avatar">
+                  {user.email?.[0].toUpperCase() || "U"}
+                </div>
+              </div>
+              {showDropdown && (
+                <div id="user-dropdown" className="user-dropdown">
+                  <div className="dropdown-header">
+                    <div className="user-avatar-large">
+                      {user.email?.[0].toUpperCase() || "U"}
+                    </div>
+                    <div className="user-details">
+                      <span className="user-name">{user.email}</span>
+                      <span className="user-role">Member</span>
+                    </div>
+                  </div>
+                  <div className="dropdown-divider"></div>
+                  <a
+                    href="https://myaccount.google.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="dropdown-item"
+                  >
+                    <i className="fas fa-user"></i>
+                    Google Account Settings
+                  </a>
+                  <button
+                    className="dropdown-item sign-out"
+                    onClick={() => {
+                      signOut(auth);
+                      setShowDropdown(false);
+                    }}
+                  >
+                    <i className="fas fa-sign-out-alt"></i>
+                    Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="guest-status">
+              <span>Guest User</span>
+              <button
+                className="sign-in-prompt"
+                onClick={() => setCurrentPage("auth")}
+              >
+                Sign In to Save Progress
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="header-content">
+          <nav className="nav-menu">
+            <button
+              className={`nav-button ${currentPage === "home" ? "active" : ""}`}
+              onClick={() => setCurrentPage("home")}
+            >
+              Home
+            </button>
+            <button
+              className={`nav-button ${
+                currentPage === "contact" ? "active" : ""
+              }`}
+              onClick={() => setCurrentPage("contact")}
+            >
+              Contact
+            </button>
+            <button
+              className={`nav-button ${currentPage === "auth" ? "active" : ""}`}
+              onClick={() => setCurrentPage("auth")}
+            >
+              {user ? "Account" : "Sign In"}
+            </button>
+          </nav>
+        </div>
         <h1>🧠 PathFind.AI</h1>
         <p className="subtitle">Discover your learning path to success</p>
       </header>
@@ -695,8 +1035,6 @@ function App() {
       <main className="app-main">
         {currentPage === "home" ? (
           <>
-            <Auth onAuthChange={setUser} />
-
             <section className="input-section">
               <div className="search-container">
                 <input
@@ -749,25 +1087,33 @@ function App() {
                           </p>
                           <p>{skill.description}</p>
                           <div className="skill-progress">
-                            <div className="progress-bar">
+                            <div
+                              className="progress-bar"
+                              onMouseDown={(e) =>
+                                handleProgressMouseDown(skill.name, e)
+                              }
+                              onMouseMove={handleProgressMouseMove}
+                              onMouseUp={handleProgressMouseUp}
+                              onMouseLeave={handleProgressMouseUp}
+                            >
                               <div
                                 className="progress-fill"
-                                style={{ width: `${skill.progress || 0}%` }}
-                              ></div>
+                                style={{ width: `${skill.progress}%` }}
+                              />
                             </div>
                             <div className="progress-controls">
                               <input
                                 type="number"
-                                min="0"
-                                max="100"
-                                value={skill.progress || 0}
+                                className="progress-input"
+                                value={skill.progress}
                                 onChange={(e) =>
-                                  updateSkillProgress(
+                                  handleProgressInputChange(
                                     skill.name,
-                                    parseInt(e.target.value)
+                                    e.target.value
                                   )
                                 }
-                                className="progress-input"
+                                min="0"
+                                max="100"
                               />
                               <span className="progress-percentage">%</span>
                             </div>
@@ -822,8 +1168,112 @@ function App() {
 
                   <div className="course-recommendations">
                     <h2>Course Recommendations</h2>
+                    <div className="course-filters">
+                      <button
+                        className="filter-toggle-button"
+                        onClick={() => setShowCourseFilters(!showCourseFilters)}
+                      >
+                        {showCourseFilters ? "Hide Filters" : "Show Filters"}
+                      </button>
+
+                      {showCourseFilters && (
+                        <div className="filters-container">
+                          <div className="filter-group">
+                            <label>Price Range:</label>
+                            <select
+                              value={courseFilters.priceRange}
+                              onChange={(e) =>
+                                setCourseFilters({
+                                  ...courseFilters,
+                                  priceRange: e.target
+                                    .value as CourseFilters["priceRange"],
+                                })
+                              }
+                            >
+                              <option value="Free">Free</option>
+                              <option value="Under $50">Under $50</option>
+                              <option value="$50-$100">$50-$100</option>
+                              <option value="Over $100">Over $100</option>
+                            </select>
+                          </div>
+
+                          <div className="filter-group">
+                            <label>Platform:</label>
+                            <select
+                              value={courseFilters.platform}
+                              onChange={(e) =>
+                                setCourseFilters({
+                                  ...courseFilters,
+                                  platform: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="All">All Platforms</option>
+                              <option value="Udemy">Udemy</option>
+                              <option value="Coursera">Coursera</option>
+                              <option value="edX">edX</option>
+                              <option value="LinkedIn">
+                                LinkedIn Learning
+                              </option>
+                              <option value="Pluralsight">Pluralsight</option>
+                            </select>
+                          </div>
+
+                          <div className="filter-group">
+                            <label>Minimum Rating:</label>
+                            <select
+                              value={courseFilters.minRating}
+                              onChange={(e) =>
+                                setCourseFilters({
+                                  ...courseFilters,
+                                  minRating: parseFloat(e.target.value),
+                                })
+                              }
+                            >
+                              <option value="4.0">4.0+ Stars</option>
+                              <option value="4.5">4.5+ Stars</option>
+                              <option value="4.8">4.8+ Stars</option>
+                            </select>
+                          </div>
+
+                          <div className="filter-group">
+                            <label>Workload:</label>
+                            <select
+                              value={courseFilters.workload}
+                              onChange={(e) =>
+                                setCourseFilters({
+                                  ...courseFilters,
+                                  workload: e.target
+                                    .value as CourseFilters["workload"],
+                                })
+                              }
+                            >
+                              <option value="Short">Short (1-10 hours)</option>
+                              <option value="Medium">
+                                Medium (10-30 hours)
+                              </option>
+                              <option value="Long">Long (30+ hours)</option>
+                            </select>
+                          </div>
+
+                          <button
+                            className="search-courses-button"
+                            onClick={handleCourseSearch}
+                            disabled={isSearchingCourses}
+                          >
+                            {isSearchingCourses
+                              ? "Searching..."
+                              : "Search Courses"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="courses-grid">
-                      {courses.map((course, index) => (
+                      {(filteredCourses.length > 0
+                        ? filteredCourses
+                        : courses
+                      ).map((course, index) => (
                         <div key={index} className="course-card">
                           <h3>{course.title}</h3>
                           <p className="platform">{course.platform}</p>
@@ -871,8 +1321,10 @@ function App() {
                 </section>
               )}
           </>
-        ) : (
+        ) : currentPage === "contact" ? (
           <Contact />
+        ) : (
+          <Auth onAuthChange={setUser} />
         )}
       </main>
 
