@@ -65,6 +65,17 @@ interface Job {
   requirements: string[];
 }
 
+// Add this interface after the other interfaces
+interface AnalyzedJob {
+  id: string;
+  title: string;
+  date: string;
+  skills: Skill[];
+  learningPath: LearningStep[];
+  courses: Course[];
+  jobs: Job[];
+}
+
 // Manual course recommendations based on job titles
 const courseRecommendations: { [key: string]: Course[] } = {
   "Software Engineer": [
@@ -259,6 +270,8 @@ function App() {
   const [jobError, setJobError] = useState<string | null>(null);
   const [selectedState, setSelectedState] = useState("All");
   const [showJobFilters, setShowJobFilters] = useState(false);
+  const [analyzedJobs, setAnalyzedJobs] = useState<AnalyzedJob[]>([]);
+  const [jobTitles, setJobTitles] = useState<string[]>([]);
 
   // Listen for system theme changes
   useEffect(() => {
@@ -281,18 +294,34 @@ function App() {
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
-  // Load user progress when they sign in
+  // Update the useEffect for auth state changes
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       setUser(user);
       if (user) {
-        loadUserProgress(user.uid);
-      } else {
-        // Clear data when user signs out
+        // Clear existing data before loading new user's data
         setSkills([]);
         setCareerGoal("");
         setLearningPath([]);
         setCourses([]);
+        setJobs([]);
+        setAnalyzedJobs([]);
+        setJobTitles([]);
+        setSelectedState("All");
+        setShowJobFilters(false);
+        // Load the new user's data
+        loadUserProgress(user.uid);
+      } else {
+        // Clear all data when signing out
+        setSkills([]);
+        setCareerGoal("");
+        setLearningPath([]);
+        setCourses([]);
+        setJobs([]);
+        setAnalyzedJobs([]);
+        setJobTitles([]);
+        setSelectedState("All");
+        setShowJobFilters(false);
       }
     });
 
@@ -325,25 +354,27 @@ function App() {
 
       if (userDoc.exists()) {
         const data = userDoc.data();
-        if (data.skills) {
-          setSkills(data.skills);
-        }
-        if (data.careerGoal) {
-          setCareerGoal(data.careerGoal);
-        }
-        if (data.learningPath) {
-          setLearningPath(data.learningPath);
-        }
-        if (data.courses) {
-          setCourses(data.courses);
+        if (data.jobHistory) {
+          // Extract job titles from job history
+          const titles = Object.keys(data.jobHistory);
+          setJobTitles(titles);
+
+          // Convert job history to analyzedJobs format
+          const analyzedJobsList = titles.map((title) => ({
+            id: data.jobHistory[title].id,
+            title: title,
+            date: data.jobHistory[title].date,
+            skills: data.jobHistory[title].skills,
+            learningPath: data.jobHistory[title].learningPath,
+            courses: data.jobHistory[title].courses,
+            jobs: data.jobHistory[title].jobs,
+          }));
+          setAnalyzedJobs(analyzedJobsList);
         }
       } else {
         // Create a new user document if it doesn't exist
         await setDoc(userDocRef, {
-          skills: [],
-          careerGoal: "",
-          learningPath: [],
-          courses: [],
+          jobHistory: {},
           createdAt: new Date().toISOString(),
           lastUpdated: new Date().toISOString(),
         });
@@ -358,13 +389,27 @@ function App() {
 
     try {
       const userDocRef = doc(db, "users", user.uid);
+
+      // Convert analyzedJobs to jobHistory format
+      const jobHistory = analyzedJobs.reduce((acc, job) => {
+        acc[job.title] = {
+          id: job.id,
+          date: job.date,
+          skills: job.skills.map((skill) => ({
+            ...skill,
+            progress: skill.progress || 0, // Ensure progress is saved
+          })),
+          learningPath: job.learningPath,
+          courses: job.courses,
+          jobs: job.jobs,
+        };
+        return acc;
+      }, {} as Record<string, any>);
+
       await setDoc(
         userDocRef,
         {
-          skills,
-          careerGoal,
-          learningPath,
-          courses,
+          jobHistory,
           lastUpdated: new Date().toISOString(),
         },
         { merge: true }
@@ -374,16 +419,16 @@ function App() {
     }
   };
 
-  // Update saveUserProgress whenever relevant state changes
+  // Update the useEffect for saving progress
   useEffect(() => {
-    if (user) {
+    if (user && (analyzedJobs.length > 0 || skills.length > 0)) {
       const debounceTimeout = setTimeout(() => {
         saveUserProgress();
       }, 1000); // Debounce the save operation
 
       return () => clearTimeout(debounceTimeout);
     }
-  }, [skills, careerGoal, learningPath, courses, user]);
+  }, [analyzedJobs, skills, user]); // Add skills to dependencies
 
   const updateSkillProgress = (skillName: string, progress: number) => {
     setSkills((prevSkills) =>
@@ -811,6 +856,45 @@ function App() {
     }
   };
 
+  const saveAnalyzedJob = (
+    careerGoal: string,
+    skills: Skill[],
+    learningPath: LearningStep[],
+    courses: Course[],
+    jobs: Job[]
+  ) => {
+    const newJob: AnalyzedJob = {
+      id: Date.now().toString(),
+      title: careerGoal,
+      date: new Date().toLocaleDateString(),
+      skills,
+      learningPath,
+      courses,
+      jobs,
+    };
+
+    // Update analyzedJobs state
+    setAnalyzedJobs((prev) => {
+      const existingIndex = prev.findIndex((job) => job.title === careerGoal);
+      if (existingIndex >= 0) {
+        // Update existing job
+        const updated = [...prev];
+        updated[existingIndex] = newJob;
+        return updated;
+      }
+      // Add new job
+      return [newJob, ...prev];
+    });
+
+    // Update jobTitles state
+    setJobTitles((prev) => {
+      if (!prev.includes(careerGoal)) {
+        return [careerGoal, ...prev];
+      }
+      return prev;
+    });
+  };
+
   const handleAnalyze = async () => {
     if (!careerGoal.trim()) {
       alert("Please enter a career goal");
@@ -839,13 +923,22 @@ function App() {
       );
       setCourses(recommendedCourses);
 
+      // Search for jobs
+      await searchJobs(selectedState);
+
+      // Save the analyzed job with all data including jobs
+      saveAnalyzedJob(
+        careerGoal,
+        analyzedSkills,
+        path,
+        recommendedCourses,
+        jobs
+      );
+
       // Show sign-in notice if user is not signed in
       if (!user) {
         setShowSignInNotice(true);
       }
-
-      // After successful skill analysis, search for jobs
-      await searchJobs(selectedState);
     } catch (error: any) {
       console.error("Error:", error);
       alert(
@@ -950,6 +1043,7 @@ function App() {
   };
 
   const handleProgressChange = (skillName: string, newProgress: number) => {
+    // Update the skills state
     setSkills((prevSkills) =>
       prevSkills.map((skill) =>
         skill.name === skillName
@@ -957,6 +1051,27 @@ function App() {
           : skill
       )
     );
+
+    // Update the analyzedJobs state to reflect the progress change
+    if (careerGoal) {
+      setAnalyzedJobs((prev) =>
+        prev.map((job) =>
+          job.title === careerGoal
+            ? {
+                ...job,
+                skills: job.skills.map((skill) =>
+                  skill.name === skillName
+                    ? {
+                        ...skill,
+                        progress: Math.max(0, Math.min(100, newProgress)),
+                      }
+                    : skill
+                ),
+              }
+            : job
+        )
+      );
+    }
   };
 
   const handleProgressInputChange = (skillName: string, value: string) => {
@@ -986,11 +1101,8 @@ function App() {
   };
 
   const calculateProgress = (e: React.MouseEvent | MouseEvent) => {
-    const progressBar = document.querySelector(".progress-bar");
-    if (!progressBar) return 0;
-
+    const progressBar = e.currentTarget as HTMLElement;
     const rect = progressBar.getBoundingClientRect();
-    // Calculate progress based on horizontal position only
     const progress = ((e.clientX - rect.left) / rect.width) * 100;
     return Math.max(0, Math.min(100, progress));
   };
@@ -1076,13 +1188,40 @@ function App() {
     }
   };
 
+  // Add this function after the other state management functions
+  const deleteJobFromHistory = (title: string) => {
+    // Remove from analyzedJobs
+    setAnalyzedJobs((prev) => prev.filter((job) => job.title !== title));
+
+    // Remove from jobTitles
+    setJobTitles((prev) => prev.filter((t) => t !== title));
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
         <div className="user-status-container">
-          <button className="theme-toggle" onClick={toggleTheme}>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            style={{
+              width: "32px",
+              height: "32px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(255, 255, 255, 0.1)",
+              border: "none",
+              borderRadius: "50%",
+              cursor: "pointer",
+            }}
+          >
             <i
               className={`fas ${theme === "light" ? "fa-moon" : "fa-sun"}`}
+              style={{
+                fontSize: "16px",
+                color: "#FFD700", // Changed to yellow color
+              }}
             ></i>
           </button>
           {user ? (
@@ -1095,7 +1234,16 @@ function App() {
                 <span className="user-email">{user.email}</span>
                 <div className="user-avatar">
                   {user.photoURL ? (
-                    <img src={user.photoURL} alt={user.displayName || "User"} />
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName || "User"}
+                      style={{
+                        width: "24px",
+                        height: "24px",
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                      }}
+                    />
                   ) : (
                     <i className="fas fa-user"></i>
                   )}
@@ -1104,8 +1252,31 @@ function App() {
               {showDropdown && (
                 <div id="user-dropdown" className="user-dropdown">
                   <div className="dropdown-header">
-                    <div className="user-avatar-large">
-                      {user.email?.[0].toUpperCase() || "U"}
+                    <div
+                      className="user-avatar-large"
+                      style={{
+                        width: "40px",
+                        height: "40px",
+                        borderRadius: "50%",
+                        backgroundColor: "#6c5ce7",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        aspectRatio: "1 / 1", // Force square aspect ratio
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "16px",
+                          color: "white",
+                          lineHeight: "1",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {user.email?.[0].toUpperCase()}
+                      </span>
                     </div>
                     <div className="user-details">
                       <span className="user-name">{user.email}</span>
@@ -1216,7 +1387,7 @@ function App() {
                 courses.length > 0) && (
                 <section className="results-section">
                   <div className="skill-gap-analysis">
-                    <h2>Skill Gap Analysis</h2>
+                    <h2>Required Skills</h2>
                     <div className="skills-grid">
                       {skills.map((skill, index) => (
                         <div key={index} className="skill-card">
@@ -1232,6 +1403,10 @@ function App() {
                           <div className="skill-progress">
                             <div
                               className="progress-bar"
+                              onClick={(e) => {
+                                const progress = calculateProgress(e);
+                                handleProgressChange(skill.name, progress);
+                              }}
                               onMouseDown={(e) =>
                                 handleProgressMouseDown(skill.name, e)
                               }
@@ -1553,8 +1728,102 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>Powered by AI to help you achieve your career goals</p>
+        <p>Powered by AI</p>
       </footer>
+
+      <div className="history-sidebar">
+        <h3>Path History</h3>
+        <div className="history-list">
+          {jobTitles.map((title, index) => (
+            <div key={index} className="history-item">
+              <div className="history-item-header">
+                <h4>{title}</h4>
+                <div className="history-item-actions">
+                  <span className="history-date">
+                    {analyzedJobs.find((job) => job.title === title)?.date ||
+                      "Not analyzed"}
+                  </span>
+                  <button
+                    className="delete-job-button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (
+                        window.confirm(
+                          "Are you sure you want to delete this path?"
+                        )
+                      ) {
+                        deleteJobFromHistory(title);
+                      }
+                    }}
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+              {analyzedJobs.find((job) => job.title === title) && (
+                <div className="history-progress">
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{
+                        width: `${(() => {
+                          const job = analyzedJobs.find(
+                            (job) => job.title === title
+                          );
+                          if (!job?.skills?.length) return 0;
+                          return (
+                            job.skills.reduce(
+                              (acc, skill) => acc + (skill.progress || 0),
+                              0
+                            ) / job.skills.length
+                          );
+                        })()}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="progress-text">
+                    {(() => {
+                      const job = analyzedJobs.find(
+                        (job) => job.title === title
+                      );
+                      if (!job?.skills?.length) return 0;
+                      return Math.round(
+                        job.skills.reduce(
+                          (acc, skill) => acc + (skill.progress || 0),
+                          0
+                        ) / job.skills.length
+                      );
+                    })()}
+                    % Complete
+                  </span>
+                </div>
+              )}
+              <button
+                className="load-history-button"
+                onClick={() => {
+                  const job = analyzedJobs.find((job) => job.title === title);
+                  if (job) {
+                    setCareerGoal(job.title);
+                    setSkills(job.skills);
+                    setLearningPath(job.learningPath);
+                    setCourses(job.courses);
+                    setJobs(job.jobs);
+                    setShowJobFilters(true);
+                    setSelectedState("All");
+                  } else {
+                    setCareerGoal(title);
+                    handleAnalyze();
+                  }
+                }}
+              >
+                {analyzedJobs.find((job) => job.title === title)
+                  ? "Load Analysis"
+                  : "Analyze"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
