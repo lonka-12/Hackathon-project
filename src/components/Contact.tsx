@@ -78,7 +78,7 @@ const Contact = () => {
                 <i className="fas fa-envelope"></i>
                 <div>
                   <h3>Email</h3>
-                  <p>ansgup0718@gmail.com</p>
+                  <p>pathfindai@gmail.com</p>
                 </div>
               </div>
             </div>

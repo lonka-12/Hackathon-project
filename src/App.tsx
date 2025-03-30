@@ -243,6 +243,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<"home" | "contact" | "auth">(
     "home"
   );
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [careerGoal, setCareerGoal] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -1286,6 +1287,14 @@ function App() {
 
   return (
     <div className="app-container">
+      <button
+        className={`sidebar-toggle ${isSidebarVisible ? "visible" : ""}`}
+        onClick={() => setIsSidebarVisible(!isSidebarVisible)}
+      >
+        <i
+          className={`fas fa-chevron-${isSidebarVisible ? "left" : "right"}`}
+        ></i>
+      </button>
       <header className="app-header">
         <div className="user-status-container">
           <button
@@ -1429,11 +1438,13 @@ function App() {
             </button>
           </nav>
         </div>
-        <h1>🧠 PathFind.AI</h1>
+        <h1>
+          <img src="logo.png" alt="PathFind.AI Logo" /> PathFind.AI
+        </h1>
         <p className="subtitle">Discover your learning path to success</p>
       </header>
 
-      <main className="app-main">
+      <main className={`app-main ${!isSidebarVisible ? "full-width" : ""}`}>
         {currentPage === "home" ? (
           <>
             <section className="input-section">
@@ -1928,7 +1939,7 @@ function App() {
         )}
       </main>
 
-      <div className="history-sidebar">
+      <div className={`history-sidebar ${isSidebarVisible ? "visible" : ""}`}>
         <h3>Path History</h3>
         <div className="history-list">
           {jobTitles.map((title, index) => (
